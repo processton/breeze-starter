@@ -1,0 +1,83 @@
+version: '1'
+services:
+    laravel.fpm:
+        build: .
+        environment:
+            APP_DEBUG: "true"
+        volumes:
+            - '.:/opt/apps/processton'
+        networks:
+            - processton
+    fpm_server:
+        image: processton/fpm_server
+    laravel.web:
+        build:
+            context: .
+            target: web_server
+        image: processton/web_server
+        # Expose our application port (80) through a port on our local machine (8080)
+        ports:
+            - '8080:80'
+        environment:
+            # We need to pass in the new FPM hst as the name of the fpm container on port 9000
+            FPM_HOST: "laravel.fpm:9000"
+        # Mount the public directory into the container so we can serve any static files directly when they change
+        volumes:
+            # Here we mount in our codebase so any changes are immediately reflected into the container
+            - './public:/opt/apps/processton/public'
+        networks:
+            - processton
+    # Run the Laravel Scheduler
+    laravel.cron:
+        build:
+            context: .
+            target: cron
+        image: processton/cron
+        # Here we mount in our codebase so any changes are immediately reflected into the container
+        volumes:
+            # Here we mount in our codebase so any changes are immediately reflected into the container
+            - '.:/opt/apps/processton'
+        networks:
+            - processton
+    # Run the frontend, and file watcher in a container, so any changes are immediately compiled and servable
+    laravel.frontend:
+        build:
+            context: .
+            target: frontend
+        # Override the default CMD, so we can watch changes to frontend files, and re-transpile them.
+        command: ["npm", "run", "watch"]
+        image: processton/frontend
+        volumes:
+            # Here we mount in our codebase so any changes are immediately reflected into the container
+            - '.:/opt/apps/processton'
+            # Add node_modeules as singular volume.
+            # This prevents our local node_modules from being propagated into the container,
+            # So the node_modules can be compiled for each of the different architectures (Local, Image)
+            - '/opt/app/node_modules/'
+        networks:
+            - processton
+    mysql:
+        image: 'mysql:8.0'
+        ports:
+            - '3306:3306'
+        environment:
+            MYSQL_ROOT_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_DATABASE: '${DB_DATABASE}'
+            MYSQL_USER: '${DB_USERNAME}'
+            MYSQL_PASSWORD: '${DB_PASSWORD}'
+            MYSQL_ALLOW_EMPTY_PASSWORD: 'yes'
+        volumes:
+            - 'processton-mysql:/var/lib/mysql'
+        networks:
+            - processton
+        healthcheck:
+          test: ["CMD", "mysqladmin", "ping", "-p${DB_PASSWORD}"]
+          retries: 3
+          timeout: 5s
+          
+
+volumes:
+    processton-mysql:
+        driver: mysql
+    processton:
+        driver: laravel
